@@ -1,0 +1,5 @@
+{
+  "name": "StreetScaper AI",
+  "description": "Transform street views using Gemini 2.5 Flash Image. Upload a photo and apply urban design improvements like widening sidewalks or adding greenery.",
+  "requestFramePermissions": []
+}
