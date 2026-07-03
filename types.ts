@@ -1,5 +1,6 @@
 export interface AppState {
   originalImage: string | null;
+  maskImage: string | null;
   generatedImage: string | null;
   isGenerating: boolean;
   error: string | null;
