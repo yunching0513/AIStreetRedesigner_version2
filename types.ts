@@ -11,6 +11,13 @@ export interface GeneratedImageResult {
   text?: string;
 }
 
+export interface HistoryEntry {
+  id: string;
+  image: string;
+  prompt: string;
+  createdAt: number;
+}
+
 export interface PresetPrompt {
   id: string;
   label: string;

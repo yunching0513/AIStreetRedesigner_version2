@@ -1,14 +1,27 @@
-import React, { useState, useCallback, useRef, ChangeEvent } from 'react';
+import React, { useState, useCallback, useRef, useEffect, ChangeEvent } from 'react';
 import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
 import { MaskEditor } from './components/MaskEditor';
 import { VideoGenerator } from './components/VideoGenerator';
 import { PromptPanel } from './components/PromptPanel';
 import { ResultDisplay } from './components/ResultDisplay';
+import { HistoryPanel } from './components/HistoryPanel';
 import { editStreetImage } from './services/geminiService';
 import { LoadingSpinner } from './components/LoadingSpinner';
-import { AppState, GeneratedImageResult } from './types';
+import { AppState, GeneratedImageResult, HistoryEntry } from './types';
 import { fileToCompressedDataUrl } from './utils/imageUtils';
+
+const HISTORY_STORAGE_KEY = 'streetscaper-history';
+const MAX_HISTORY = 8;
+
+const loadHistory = (): HistoryEntry[] => {
+  try {
+    const raw = sessionStorage.getItem(HISTORY_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as HistoryEntry[]) : [];
+  } catch {
+    return [];
+  }
+};
 
 const App: React.FC = () => {
   const [state, setState] = useState<AppState>({
@@ -20,7 +33,18 @@ const App: React.FC = () => {
   });
 
   const [promptText, setPromptText] = useState<string>('');
+  const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
   const changeFileInputRef = useRef<HTMLInputElement>(null);
+
+  // 歷史版本存到 sessionStorage（本次瀏覽期間保留）；
+  // 圖片為 base64 體積較大，超過配額時放棄持久化但不影響畫面上的列表。
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify(history));
+    } catch {
+      // QuotaExceededError：忽略，僅保留記憶體中的歷史
+    }
+  }, [history]);
 
   const handleImageSelect = useCallback((base64Image: string) => {
     setState((prev) => ({
@@ -67,6 +91,17 @@ const App: React.FC = () => {
           generatedImage: result.imageUrl,
           isGenerating: false,
         }));
+        setHistory((prev) =>
+          [
+            {
+              id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+              image: result.imageUrl!,
+              prompt: promptText,
+              createdAt: Date.now(),
+            },
+            ...prev,
+          ].slice(0, MAX_HISTORY)
+        );
       } else {
         setState((prev) => ({
           ...prev,
@@ -83,6 +118,25 @@ const App: React.FC = () => {
       }));
     }
   }, [state.originalImage, state.maskImage, promptText]);
+
+  // 以本次結果為新底圖繼續改造；MaskEditor 會因 imageSrc 改變自動清空圈選
+  const handleContinueEdit = useCallback(() => {
+    setState((prev) => {
+      if (!prev.generatedImage) return prev;
+      return {
+        ...prev,
+        originalImage: prev.generatedImage,
+        maskImage: null,
+        generatedImage: null,
+        error: null,
+      };
+    });
+    setPromptText('');
+  }, []);
+
+  const handleSelectHistory = useCallback((entry: HistoryEntry) => {
+    setState((prev) => ({ ...prev, generatedImage: entry.image, error: null }));
+  }, []);
 
   const handleReset = useCallback(() => {
     setState({
@@ -171,6 +225,14 @@ const App: React.FC = () => {
                     <ResultDisplay
                       originalImage={state.originalImage}
                       generatedImage={state.generatedImage}
+                      canRegenerate={!!promptText.trim()}
+                      onRegenerate={handleGenerate}
+                      onContinueEdit={handleContinueEdit}
+                    />
+                    <HistoryPanel
+                      entries={history}
+                      activeImage={state.generatedImage}
+                      onSelect={handleSelectHistory}
                     />
                     {state.generatedImage && (
                       <VideoGenerator
