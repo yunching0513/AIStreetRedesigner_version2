@@ -2,6 +2,7 @@ import React, { useState, useCallback, useRef, ChangeEvent } from 'react';
 import { Header } from './components/Header';
 import { ImageUploader } from './components/ImageUploader';
 import { MaskEditor } from './components/MaskEditor';
+import { VideoGenerator } from './components/VideoGenerator';
 import { PromptPanel } from './components/PromptPanel';
 import { ResultDisplay } from './components/ResultDisplay';
 import { editStreetImage } from './services/geminiService';
@@ -166,10 +167,19 @@ const App: React.FC = () => {
                     <p className="text-xs text-slate-400 mt-2">使用 Nano Banana 模型</p>
                   </div>
                 ) : (
-                  <ResultDisplay
-                    originalImage={state.originalImage}
-                    generatedImage={state.generatedImage}
-                  />
+                  <>
+                    <ResultDisplay
+                      originalImage={state.originalImage}
+                      generatedImage={state.generatedImage}
+                    />
+                    {state.generatedImage && (
+                      <VideoGenerator
+                        key={state.generatedImage.slice(-64)}
+                        originalImage={state.originalImage}
+                        generatedImage={state.generatedImage}
+                      />
+                    )}
+                  </>
                 )}
               </div>
 
@@ -213,7 +223,7 @@ const App: React.FC = () => {
       </main>
 
       <footer className="bg-white border-t border-slate-100 py-6 text-center text-slate-400 text-sm">
-        <p>© 2024 StreetScaper AI. Powered by Google Gemini 2.5 Flash Image.</p>
+        <p>© 2024 StreetScaper AI. Powered by Google Gemini 2.5 Flash Image & Veo.</p>
       </footer>
     </div>
   );

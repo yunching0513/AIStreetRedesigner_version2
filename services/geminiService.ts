@@ -5,6 +5,10 @@ import { parseDataUrl } from "../utils/imageUtils";
 // Using the specified "Nano Banana" alias model name
 const MODEL_NAME = 'gemini-2.5-flash-image';
 
+// Veo image-to-video：以改造後的圖片為首幀生成動態影片
+const VIDEO_MODEL_NAME = 'veo-3.0-fast-generate-001';
+const VIDEO_POLL_INTERVAL_MS = 10000;
+
 export const editStreetImage = async (
   base64Image: string,
   prompt: string,
@@ -83,4 +87,63 @@ export const editStreetImage = async (
     console.error("Gemini API Error:", error);
     throw error;
   }
+};
+
+export const generateStreetVideo = async (
+  base64Image: string,
+  prompt: string,
+  onProgress?: (message: string) => void
+): Promise<string> => {
+  const apiKey = process.env.API_KEY;
+  if (!apiKey) {
+    throw new Error("API Key is missing.");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+  const image = parseDataUrl(base64Image);
+
+  onProgress?.('提交影片生成請求...');
+
+  let operation = await ai.models.generateVideos({
+    model: VIDEO_MODEL_NAME,
+    prompt,
+    image: {
+      imageBytes: image.data,
+      mimeType: image.mimeType,
+    },
+  });
+
+  while (!operation.done) {
+    onProgress?.('Veo 正在生成影片（約需 1〜3 分鐘）...');
+    await new Promise((r) => setTimeout(r, VIDEO_POLL_INTERVAL_MS));
+    operation = await ai.operations.getVideosOperation({ operation });
+  }
+
+  if (operation.error) {
+    throw new Error(String(operation.error.message ?? '影片生成失敗'));
+  }
+
+  // SDK 正式欄位為 response.generatedVideos；保留對 REST 原始
+  // 回應格式（generateVideoResponse.generatedSamples）的相容處理。
+  const rawResponse = operation.response as
+    | (typeof operation.response & {
+        generateVideoResponse?: { generatedSamples?: Array<{ video?: { uri?: string } }> };
+      })
+    | undefined;
+  const video =
+    rawResponse?.generatedVideos?.[0]?.video ??
+    rawResponse?.generateVideoResponse?.generatedSamples?.[0]?.video;
+
+  if (!video?.uri) {
+    throw new Error('未取得影片內容，可能被安全政策擋下，請調整描述後再試。');
+  }
+
+  onProgress?.('下載影片中...');
+  const separator = video.uri.includes('?') ? '&' : '?';
+  const response = await fetch(`${video.uri}${separator}key=${apiKey}`);
+  if (!response.ok) {
+    throw new Error(`影片下載失敗 (HTTP ${response.status})`);
+  }
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 };
