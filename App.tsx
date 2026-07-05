@@ -6,6 +6,7 @@ import { VideoGenerator } from './components/VideoGenerator';
 import { PromptPanel } from './components/PromptPanel';
 import { ResultDisplay } from './components/ResultDisplay';
 import { HistoryPanel } from './components/HistoryPanel';
+import { StreetViewPicker } from './components/StreetViewPicker';
 import { editStreetImage } from './services/geminiService';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { AppState, GeneratedImageResult, HistoryEntry } from './types';
@@ -34,6 +35,7 @@ const App: React.FC = () => {
 
   const [promptText, setPromptText] = useState<string>('');
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
+  const [showMapPicker, setShowMapPicker] = useState(false);
   const changeFileInputRef = useRef<HTMLInputElement>(null);
 
   // 歷史版本存到 sessionStorage（本次瀏覽期間保留）；
@@ -163,8 +165,21 @@ const App: React.FC = () => {
                 <h2 className="text-3xl font-bold text-slate-800 mb-2">上傳街景照片</h2>
                 <p className="text-slate-500">開始您的城市改造計畫</p>
               </div>
-              <ImageUploader onImageSelect={handleImageSelect} />
+              <ImageUploader
+                onImageSelect={handleImageSelect}
+                onOpenMapPicker={() => setShowMapPicker(true)}
+              />
             </section>
+          )}
+
+          {showMapPicker && (
+            <StreetViewPicker
+              onSelect={(dataUrl) => {
+                handleImageSelect(dataUrl);
+                setShowMapPicker(false);
+              }}
+              onClose={() => setShowMapPicker(false)}
+            />
           )}
 
           {/* Step 2 & 3: Annotate, Prompt & Result */}

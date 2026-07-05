@@ -9,6 +9,7 @@ import {
   toErrorPayload,
   HttpError,
 } from './gemini';
+import { getMapsConfig, geocode, fetchStreetView } from './maps';
 
 const MAX_BODY_BYTES = 25 * 1024 * 1024;
 
@@ -64,6 +65,25 @@ export const handleApiRequest = async (
         const upstream = await fetchVideo(url.searchParams.get('uri') ?? '');
         res.writeHead(200, {
           'Content-Type': upstream.headers.get('content-type') ?? 'video/mp4',
+        });
+        res.end(Buffer.from(await upstream.arrayBuffer()));
+        return;
+      }
+      case 'GET /maps-config':
+        sendJson(res, 200, getMapsConfig());
+        return;
+      case 'GET /geocode':
+        sendJson(res, 200, await geocode(url.searchParams.get('q') ?? ''));
+        return;
+      case 'GET /streetview': {
+        const upstream = await fetchStreetView({
+          pano: url.searchParams.get('pano'),
+          heading: url.searchParams.get('heading'),
+          pitch: url.searchParams.get('pitch'),
+          fov: url.searchParams.get('fov'),
+        });
+        res.writeHead(200, {
+          'Content-Type': upstream.headers.get('content-type') ?? 'image/jpeg',
         });
         res.end(Buffer.from(await upstream.arrayBuffer()));
         return;

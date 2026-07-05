@@ -15,7 +15,9 @@ View your app in AI Studio: https://ai.studio/apps/drive/1aH_GAqUJT_elLg1uMlZ6Ln
 1. Install dependencies:
    `npm install`
 2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
+3. (選用) Set the `GOOGLE_MAPS_API_KEY` in [.env.local](.env.local) 以啟用「從 Google 地圖選取街景」功能
+   （金鑰需啟用 Maps JavaScript API、Street View Static API、Geocoding API，並建議設定 HTTP referrer 限制）
+4. Run the app:
    `npm run dev`
 
 API 金鑰只在伺服器端使用（開發時由 Vite 中介層代理 `/api` 請求），不會被打包進前端程式碼。
@@ -23,7 +25,7 @@ API 金鑰只在伺服器端使用（開發時由 Vite 中介層代理 `/api` �
 ## Deploy to Vercel
 
 1. 在 [vercel.com/new](https://vercel.com/new) 匯入這個儲存庫（框架會自動偵測為 Vite）
-2. 在專案的 Environment Variables 加入 `GEMINI_API_KEY`
+2. 在專案的 Environment Variables 加入 `GEMINI_API_KEY`（及選用的 `GOOGLE_MAPS_API_KEY`）
 3. 部署完成後，`api/` 目錄會自動成為 serverless functions，前端透過 `/api/*` 代理呼叫 Gemini，金鑰不會外洩
 
 > 注意：Veo 影片生成需要已啟用計費的 API 金鑰。
