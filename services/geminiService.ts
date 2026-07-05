@@ -22,13 +22,32 @@ const postJson = async <T>(url: string, body: unknown): Promise<T> => {
 export const editStreetImage = async (
   base64Image: string,
   prompt: string,
-  maskBase64?: string | null
+  maskBase64?: string | null,
+  guidelineId?: string | null
 ): Promise<GeneratedImageResult> => {
   return postJson<GeneratedImageResult>('/api/generate', {
     image: base64Image,
     prompt,
     mask: maskBase64 ?? null,
+    guideline: guidelineId ?? null,
   });
+};
+
+export interface StreetSuggestion {
+  title: string;
+  description: string;
+  instruction: string;
+}
+
+export const analyzeStreet = async (
+  base64Image: string,
+  guidelineId?: string | null
+): Promise<StreetSuggestion[]> => {
+  const result = await postJson<{ suggestions: StreetSuggestion[] }>('/api/analyze', {
+    image: base64Image,
+    guideline: guidelineId ?? null,
+  });
+  return result.suggestions;
 };
 
 interface VideoStatusResponse {

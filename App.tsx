@@ -7,7 +7,7 @@ import { PromptPanel } from './components/PromptPanel';
 import { ResultDisplay } from './components/ResultDisplay';
 import { HistoryPanel } from './components/HistoryPanel';
 import { StreetViewPicker } from './components/StreetViewPicker';
-import { editStreetImage } from './services/geminiService';
+import { editStreetImage, analyzeStreet, StreetSuggestion } from './services/geminiService';
 import { LoadingSpinner } from './components/LoadingSpinner';
 import { AppState, GeneratedImageResult, HistoryEntry } from './types';
 import { fileToCompressedDataUrl } from './utils/imageUtils';
@@ -36,6 +36,9 @@ const App: React.FC = () => {
   const [promptText, setPromptText] = useState<string>('');
   const [history, setHistory] = useState<HistoryEntry[]>(loadHistory);
   const [showMapPicker, setShowMapPicker] = useState(false);
+  const [guidelineId, setGuidelineId] = useState<string | null>(null);
+  const [suggestions, setSuggestions] = useState<StreetSuggestion[]>([]);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
   const changeFileInputRef = useRef<HTMLInputElement>(null);
 
   // 歷史版本存到 sessionStorage（本次瀏覽期間保留）；
@@ -56,6 +59,7 @@ const App: React.FC = () => {
       generatedImage: null,
       error: null,
     }));
+    setSuggestions([]);
   }, []);
 
   const handleChangeFile = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
@@ -84,7 +88,8 @@ const App: React.FC = () => {
       const result: GeneratedImageResult = await editStreetImage(
         state.originalImage,
         promptText,
-        state.maskImage
+        state.maskImage,
+        guidelineId
       );
 
       if (result.imageUrl) {
@@ -119,7 +124,25 @@ const App: React.FC = () => {
         error: error instanceof Error ? error.message : '發生未知錯誤',
       }));
     }
-  }, [state.originalImage, state.maskImage, promptText]);
+  }, [state.originalImage, state.maskImage, promptText, guidelineId]);
+
+  const handleAnalyze = useCallback(async () => {
+    if (!state.originalImage || isAnalyzing) return;
+    setIsAnalyzing(true);
+    setState((prev) => ({ ...prev, error: null }));
+    try {
+      const result = await analyzeStreet(state.originalImage, guidelineId);
+      setSuggestions(result);
+    } catch (error) {
+      console.error('Analysis failed:', error);
+      setState((prev) => ({
+        ...prev,
+        error: error instanceof Error ? error.message : '街道分析失敗',
+      }));
+    } finally {
+      setIsAnalyzing(false);
+    }
+  }, [state.originalImage, guidelineId, isAnalyzing]);
 
   // 以本次結果為新底圖繼續改造；MaskEditor 會因 imageSrc 改變自動清空圈選
   const handleContinueEdit = useCallback(() => {
@@ -134,6 +157,7 @@ const App: React.FC = () => {
       };
     });
     setPromptText('');
+    setSuggestions([]);
   }, []);
 
   const handleSelectHistory = useCallback((entry: HistoryEntry) => {
@@ -149,6 +173,7 @@ const App: React.FC = () => {
       error: null,
     });
     setPromptText('');
+    setSuggestions([]);
   }, []);
 
   return (
@@ -284,6 +309,11 @@ const App: React.FC = () => {
                     setPromptText={setPromptText}
                     isGenerating={state.isGenerating}
                     onGenerate={handleGenerate}
+                    guidelineId={guidelineId}
+                    setGuidelineId={setGuidelineId}
+                    suggestions={suggestions}
+                    isAnalyzing={isAnalyzing}
+                    onAnalyze={handleAnalyze}
                   />
 
                   {state.error && (

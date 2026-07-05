@@ -1,8 +1,10 @@
 // 伺服器端 Gemini 邏輯：API 金鑰只在這裡使用，不會進入前端 bundle。
 // 由 Vercel serverless functions（api/*.ts）與本機開發中介層（server/devApi.ts）共用。
 import { GoogleGenAI } from '@google/genai';
+import { getGuidelineById } from '../shared/designGuidelines';
 
 const IMAGE_MODEL = 'gemini-2.5-flash-image';
+const TEXT_MODEL = 'gemini-2.5-flash';
 const VIDEO_MODEL = 'veo-3.0-fast-generate-001';
 const GEMINI_API_HOST = 'generativelanguage.googleapis.com';
 
@@ -32,6 +34,7 @@ export interface GenerateImageBody {
   image?: string;
   prompt?: string;
   mask?: string | null;
+  guideline?: string | null;
 }
 
 export interface GenerateImageResult {
@@ -40,9 +43,15 @@ export interface GenerateImageResult {
 }
 
 export const generateImage = async (body: GenerateImageBody): Promise<GenerateImageResult> => {
-  const { image, prompt, mask } = body;
+  const { image, prompt, mask, guideline } = body;
   if (!image || typeof image !== 'string') throw new HttpError(400, '缺少圖片內容。');
   if (!prompt || typeof prompt !== 'string' || !prompt.trim()) throw new HttpError(400, '缺少改造指令。');
+  if (guideline && !getGuidelineById(guideline)) throw new HttpError(400, '無效的設計準則。');
+
+  const guidelineBrief = getGuidelineById(guideline)?.brief;
+  const standardsClause = guidelineBrief
+    ? ` The redesign MUST follow these professional street design standards: ${guidelineBrief}`
+    : '';
 
   const ai = new GoogleGenAI({ apiKey: getApiKey() });
   const original = parseDataUrl(image);
@@ -52,7 +61,7 @@ export const generateImage = async (body: GenerateImageBody): Promise<GenerateIm
     const maskImage = parseDataUrl(mask);
     parts.push(
       {
-        text: `You are given two images: the first is a street view photo, the second is a black-and-white mask of the same size. The WHITE area of the mask marks the ONLY region you are allowed to modify. Apply the following instruction strictly inside that region: ${prompt}. Keep everything outside the white region completely unchanged, pixel-identical to the original photo. Keep the perspective and lighting consistent. Output the full edited photo without any mask overlay or markings.`,
+        text: `You are given two images: the first is a street view photo, the second is a black-and-white mask of the same size. The WHITE area of the mask marks the ONLY region you are allowed to modify. Apply the following instruction strictly inside that region: ${prompt}.${standardsClause} Keep everything outside the white region completely unchanged, pixel-identical to the original photo. Keep the perspective and lighting consistent. Output the full edited photo without any mask overlay or markings.`,
       },
       { inlineData: { mimeType: original.mimeType, data: original.data } },
       { inlineData: { mimeType: maskImage.mimeType, data: maskImage.data } }
@@ -60,7 +69,7 @@ export const generateImage = async (body: GenerateImageBody): Promise<GenerateIm
   } else {
     parts.push(
       {
-        text: `This is a street view image. Please modify it based on the following instruction: ${prompt}. Keep the perspective and lighting consistent.`,
+        text: `This is a street view image. Please modify it based on the following instruction: ${prompt}.${standardsClause} Keep the perspective and lighting consistent.`,
       },
       { inlineData: { mimeType: original.mimeType, data: original.data } }
     );
@@ -85,6 +94,83 @@ export const generateImage = async (body: GenerateImageBody): Promise<GenerateIm
     throw new HttpError(502, '未能生成內容，可能被安全政策擋下，請調整指令後再試。');
   }
   return result;
+};
+
+export interface AnalyzeBody {
+  image?: string;
+  guideline?: string | null;
+}
+
+export interface StreetSuggestion {
+  title: string;
+  description: string;
+  instruction: string;
+}
+
+// AI 街道體檢：以文字模型依設計準則分析街景，回傳可直接套用的改善建議
+export const analyzeStreet = async (body: AnalyzeBody): Promise<{ suggestions: StreetSuggestion[] }> => {
+  const { image, guideline } = body;
+  if (!image || typeof image !== 'string') throw new HttpError(400, '缺少圖片內容。');
+  if (guideline && !getGuidelineById(guideline)) throw new HttpError(400, '無效的設計準則。');
+
+  const brief = getGuidelineById(guideline)?.brief;
+  const standards = brief
+    ? `Evaluate the street against these specific design standards: ${brief}`
+    : 'Evaluate the street against widely accepted urban street design standards (NACTO Urban Street Design Guide, Global Street Design Guide, Complete Streets): pedestrian safety and comfort, traffic calming, protected cycling infrastructure, transit quality, greenery and climate resilience.';
+
+  const ai = new GoogleGenAI({ apiKey: getApiKey() });
+  const original = parseDataUrl(image);
+
+  const response = await ai.models.generateContent({
+    model: TEXT_MODEL,
+    contents: {
+      parts: [
+        {
+          text: `You are a professional urban street designer. Analyze this street view photo. ${standards}
+
+Identify the 3 to 5 most impactful, physically visible problems and propose one concrete improvement for each. Respond with ONLY a JSON array, no markdown, in this exact shape:
+[{"title": "...", "description": "...", "instruction": "..."}]
+
+- "title": short label in Traditional Chinese (zh-TW), at most 12 characters
+- "description": one sentence in Traditional Chinese explaining the problem and the improvement, citing the relevant standard (e.g. 人行道淨寬、車道寬度)
+- "instruction": an English image-editing instruction for a generative image model, describing the specific physical change to make in this photo`,
+        },
+        { inlineData: { mimeType: original.mimeType, data: original.data } },
+      ],
+    },
+    config: {
+      responseMimeType: 'application/json',
+    },
+  });
+
+  const text = response.text ?? '';
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    throw new HttpError(502, 'AI 分析結果格式異常，請再試一次。');
+  }
+  if (!Array.isArray(parsed)) {
+    throw new HttpError(502, 'AI 分析結果格式異常，請再試一次。');
+  }
+  const suggestions = parsed
+    .filter(
+      (s): s is StreetSuggestion =>
+        !!s &&
+        typeof (s as StreetSuggestion).title === 'string' &&
+        typeof (s as StreetSuggestion).instruction === 'string'
+    )
+    .slice(0, 5)
+    .map((s) => ({
+      title: s.title,
+      description: typeof s.description === 'string' ? s.description : '',
+      instruction: s.instruction,
+    }));
+
+  if (suggestions.length === 0) {
+    throw new HttpError(502, 'AI 未能提出建議，請再試一次。');
+  }
+  return { suggestions };
 };
 
 export interface VideoStartBody {

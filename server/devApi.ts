@@ -3,6 +3,7 @@
 import type { IncomingMessage, ServerResponse } from 'http';
 import {
   generateImage,
+  analyzeStreet,
   startVideo,
   getVideoStatus,
   fetchVideo,
@@ -52,6 +53,9 @@ export const handleApiRequest = async (
     switch (route) {
       case 'POST /generate':
         sendJson(res, 200, await generateImage(await readJson(req)));
+        return;
+      case 'POST /analyze':
+        sendJson(res, 200, await analyzeStreet(await readJson(req)));
         return;
       case 'POST /video-start':
         sendJson(res, 200, await startVideo(await readJson(req)));
