@@ -1,5 +1,6 @@
 export interface AppState {
   originalImage: string | null;
+  maskImage: string | null;
   generatedImage: string | null;
   isGenerating: boolean;
   error: string | null;
@@ -8,6 +9,13 @@ export interface AppState {
 export interface GeneratedImageResult {
   imageUrl?: string;
   text?: string;
+}
+
+export interface HistoryEntry {
+  id: string;
+  image: string;
+  prompt: string;
+  createdAt: number;
 }
 
 export interface PresetPrompt {

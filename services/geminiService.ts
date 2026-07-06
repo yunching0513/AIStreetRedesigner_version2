@@ -1,62 +1,93 @@
-import { GoogleGenAI } from "@google/genai";
+// 前端不再持有 API 金鑰：所有 Gemini 呼叫改走同源的 /api 代理
+// （正式環境為 Vercel serverless functions，開發環境為 Vite 中介層）。
 import { GeneratedImageResult } from "../types";
 
-// Using the specified "Nano Banana" alias model name
-const MODEL_NAME = 'gemini-2.5-flash-image';
+const VIDEO_POLL_INTERVAL_MS = 10000;
+
+const postJson = async <T>(url: string, body: unknown): Promise<T> => {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  const data = (await response.json().catch(() => null)) as
+    | (T & { error?: string })
+    | null;
+  if (!response.ok || !data) {
+    throw new Error(data?.error ?? `請求失敗 (HTTP ${response.status})`);
+  }
+  return data;
+};
 
 export const editStreetImage = async (
   base64Image: string,
-  prompt: string
+  prompt: string,
+  maskBase64?: string | null,
+  guidelineId?: string | null
 ): Promise<GeneratedImageResult> => {
-  const apiKey = process.env.API_KEY;
-  if (!apiKey) {
-    throw new Error("API Key is missing.");
+  return postJson<GeneratedImageResult>('/api/generate', {
+    image: base64Image,
+    prompt,
+    mask: maskBase64 ?? null,
+    guideline: guidelineId ?? null,
+  });
+};
+
+export interface StreetSuggestion {
+  title: string;
+  description: string;
+  instruction: string;
+}
+
+export const analyzeStreet = async (
+  base64Image: string,
+  guidelineId?: string | null
+): Promise<StreetSuggestion[]> => {
+  const result = await postJson<{ suggestions: StreetSuggestion[] }>('/api/analyze', {
+    image: base64Image,
+    guideline: guidelineId ?? null,
+  });
+  return result.suggestions;
+};
+
+interface VideoStatusResponse {
+  done: boolean;
+  uri?: string;
+  error?: string;
+}
+
+export const generateStreetVideo = async (
+  base64Image: string,
+  prompt: string,
+  onProgress?: (message: string) => void
+): Promise<string> => {
+  onProgress?.('提交影片生成請求...');
+
+  let status = await postJson<VideoStatusResponse & { operationName: string }>(
+    '/api/video-start',
+    { image: base64Image, prompt }
+  );
+  const { operationName } = status;
+
+  while (!status.done) {
+    onProgress?.('Veo 正在生成影片（約需 1〜3 分鐘）...');
+    await new Promise((r) => setTimeout(r, VIDEO_POLL_INTERVAL_MS));
+    status = { operationName, ...(await postJson<VideoStatusResponse>('/api/video-status', { operationName })) };
   }
 
-  const ai = new GoogleGenAI({ apiKey });
-
-  // Clean the base64 string if it contains the data URL prefix
-  const cleanedBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg|webp);base64,/, '');
-
-  try {
-    const response = await ai.models.generateContent({
-      model: MODEL_NAME,
-      contents: {
-        parts: [
-          {
-            text: `This is a street view image. Please modify it based on the following instruction: ${prompt}. Keep the perspective and lighting consistent.`,
-          },
-          {
-            inlineData: {
-              mimeType: 'image/jpeg', // Assuming JPEG for simplicity, or detect from upload
-              data: cleanedBase64,
-            },
-          },
-        ],
-      },
-    });
-
-    const result: GeneratedImageResult = {};
-
-    // Iterate through parts to find the generated image
-    if (response.candidates && response.candidates[0] && response.candidates[0].content && response.candidates[0].content.parts) {
-      for (const part of response.candidates[0].content.parts) {
-        if (part.inlineData) {
-          result.imageUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
-        } else if (part.text) {
-          result.text = part.text;
-        }
-      }
-    }
-
-    if (!result.imageUrl && !result.text) {
-        throw new Error("No content generated.");
-    }
-
-    return result;
-
-  } catch (error) {
-    console.error("Gemini API Error:", error);
-    throw error;
+  if (status.error) {
+    throw new Error(status.error);
   }
+  if (!status.uri) {
+    throw new Error('未取得影片內容，可能被安全政策擋下，請調整描述後再試。');
+  }
+
+  onProgress?.('下載影片中...');
+  const download = await fetch(`/api/video-download?uri=${encodeURIComponent(status.uri)}`);
+  if (!download.ok) {
+    const data = (await download.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(data?.error ?? `影片下載失敗 (HTTP ${download.status})`);
+  }
+  const blob = await download.blob();
+  return URL.createObjectURL(blob);
 };
